@@ -213,6 +213,26 @@
     </widget>
    </item>
    <item>
+    <widget class="QTextBrowser" name="stepsTextDisplay"/>
+   </item>
+   <item>
+    <widget class="QPushButton" name="prevStepButton">
+     <property name="text">
+      <string>Previous Step</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="nextStepButton">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <property name="text">
+      <string>Next Step</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <spacer name="verticalSpacer">
      <property name="orientation">
       <enum>Qt::Vertical</enum>

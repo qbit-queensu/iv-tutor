@@ -144,6 +144,7 @@ class IVTutorWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._parameterNode = None
         self._parameterNodeGuiTag = None
         slicer.mymod = self
+        self.currentStep = None
 
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
@@ -174,6 +175,14 @@ class IVTutorWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Buttons
         self.ui.applyButton.connect("clicked(bool)", self.onApplyButton)
         self.ui.connectDeviceButton.connect("toggled(bool)", self.onConnectDeviceButton)
+        self.ui.nextStepButton.connect("clicked(bool)", self.onNextStepButton)
+        self.ui.prevStepButton.connect("clicked(bool)", self.onPrevStepButton)
+
+        # Text box Displays
+        self.initStepsTextDisplay()
+
+        # Step number initialization for instructions
+        self.currentStep = 0
 
         # Make sure parameter node is initialized (needed for module reload)
         self.initializeParameterNode()
@@ -267,6 +276,51 @@ class IVTutorWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.startIGTConnection(toggled)
             self.ui.connectDeviceButton.text = "Connect Device" 
 
+    def onNextStepButton(self) -> None:
+        """Go to the next step in the instruction."""
+        
+        if self.currentStep == 10:
+            return
+        else:
+            self.currentStep += 1
+            self.stepsTextDisplay(self.currentStep)
+
+    def onPrevStepButton(self) -> None:
+        """Go to the previous step in the instruction."""
+        
+        if self.currentStep == 0:
+            return
+        else:
+            self.currentStep -= 1
+            self.stepsTextDisplay(self.currentStep)
+
+    def initStepsTextDisplay(self):
+        self.ui.stepsTextDisplay.setText("Click 'Connect Device' to start the connection with the IGT device. Then click 'Start Live Prediction' to start the live prediction of the IGT device. Click 'Stop Live Prediction' to stop the live prediction of the IGT device. Click 'Disconnect Device' to stop the connection with the IGT device.")
+            
+    def stepsTextDisplay(self, step):
+        if step == 0:
+            self.initStepsTextDisplay()
+        elif step == 1:
+            self.ui.stepsTextDisplay.setText("Step 1")
+        elif step == 2:
+            self.ui.stepsTextDisplay.setText("Step 2")
+        elif step == 3:
+            self.ui.stepsTextDisplay.setText("Step 3")
+        elif step == 4:
+            self.ui.stepsTextDisplay.setText("Step 4")
+        elif step == 5:
+            self.ui.stepsTextDisplay.setText("Step 5")
+        elif step == 6:
+            self.ui.stepsTextDisplay.setText("Step 6")
+        elif step == 7:
+            self.ui.stepsTextDisplay.setText("Step 7")
+        elif step == 8:
+            self.ui.stepsTextDisplay.setText("Step 8")
+        elif step == 9:
+            self.ui.stepsTextDisplay.setText("Step 9")
+        elif step == 10:
+            self.ui.stepsTextDisplay.setText("Step 10") 
+
 
 #
 # IVTutorLogic
@@ -299,7 +353,7 @@ class IVTutorLogic(ScriptedLoadableModuleLogic):
             cameraConnectorNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLIGTLConnectorNode")
             cameraConnectorNode.SetTypeClient(self.CONNECTION_HOSTNAME, self.CAMERA_PORT)
             parameterNode.cameraConnectorNode = cameraConnectorNode
-        markerConnectorNode = parameterNode.cameraConnectorNode
+        markerConnectorNode = parameterNode.markerConnectorNode
         if not markerConnectorNode:
             markerConnectorNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLIGTLConnectorNode")
             markerConnectorNode.SetTypeClient(self.CONNECTION_HOSTNAME, self.MARKER_PORT)
@@ -356,10 +410,8 @@ class IVTutorLogic(ScriptedLoadableModuleLogic):
             cameraConnectorNode.Start()
         else:
             cameraConnectorNode.Stop()
-            
 
-
-
+    
 
 #
 # IVTutorTest
