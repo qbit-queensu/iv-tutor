@@ -14,7 +14,7 @@ from slicer.parameterNodeWrapper import (
     WithinRange,
 )
 
-from slicer import vtkMRMLScalarVolumeNode, vtkMRMLIGTLConnectorNode
+from slicer import vtkMRMLScalarVolumeNode, vtkMRMLIGTLConnectorNode, vtkMRMLWatchdogNode
 
 
 #
@@ -110,20 +110,11 @@ class IVTutorParameterNode:
     """
     The parameters needed by module.
 
-    inputVolume - The volume to threshold.
-    imageThreshold - The value at which to threshold the input volume.
-    invertThreshold - If true, will invert the threshold.
-    thresholdedVolume - The output volume that will contain the thresholded volume.
-    invertedVolume - The output volume that will contain the inverted thresholded volume.
     """
-    # I commented out cuz idk what it does March 13, 2024
-    inputVolume: vtkMRMLScalarVolumeNode
-    imageThreshold: Annotated[float, WithinRange(-100, 500)] = 100
-    invertThreshold: bool = False
-    thresholdedVolume: vtkMRMLScalarVolumeNode
-    invertedVolume: vtkMRMLScalarVolumeNode
+    
     cameraConnectorNode: vtkMRMLIGTLConnectorNode
     markerConnectorNode: vtkMRMLIGTLConnectorNode
+    watchDogNode: vtkMRMLWatchdogNode
 
 
 #
@@ -145,6 +136,7 @@ class IVTutorWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self._parameterNodeGuiTag = None
         slicer.mymod = self
         self.currentStep = None
+        self.appliedTransforms = False # flag to check if transforms have been applied
 
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
@@ -173,8 +165,8 @@ class IVTutorWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
         # Buttons
-        self.ui.applyButton.connect("clicked(bool)", self.onApplyButton)
         self.ui.connectDeviceButton.connect("toggled(bool)", self.onConnectDeviceButton)
+        self.ui.applyTransformsButton.connect("clicked(bool)", self.onApplyTransformsButton)
         self.ui.nextStepButton.connect("clicked(bool)", self.onNextStepButton)
         self.ui.prevStepButton.connect("clicked(bool)", self.onPrevStepButton)
 
@@ -202,7 +194,6 @@ class IVTutorWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self._parameterNode:
             self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
             self._parameterNodeGuiTag = None
-            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
 
     def onSceneStartClose(self, caller, event) -> None:
         """Called just before the scene is closed."""
@@ -222,12 +213,6 @@ class IVTutorWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self.setParameterNode(self.logic.getParameterNode())
 
-        # Select default input nodes if nothing is selected yet to save a few clicks for the user
-        if not self._parameterNode.inputVolume:
-            firstVolumeNode = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLScalarVolumeNode")
-            if firstVolumeNode:
-                self._parameterNode.inputVolume = firstVolumeNode
-
     def setParameterNode(self, inputParameterNode: Optional[IVTutorParameterNode]) -> None:
         """
         Set and observe parameter node.
@@ -236,35 +221,11 @@ class IVTutorWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         if self._parameterNode:
             self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
-            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
         self._parameterNode = inputParameterNode
         if self._parameterNode:
             # Note: in the .ui file, a Qt dynamic property called "SlicerParameterName" is set on each
             # ui element that needs connection.
             self._parameterNodeGuiTag = self._parameterNode.connectGui(self.ui)
-            self.addObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
-            self._checkCanApply()
-
-    def _checkCanApply(self, caller=None, event=None) -> None:
-        if self._parameterNode and self._parameterNode.inputVolume and self._parameterNode.thresholdedVolume:
-            self.ui.applyButton.toolTip = _("Compute output volume")
-            self.ui.applyButton.enabled = True
-        else:
-            self.ui.applyButton.toolTip = _("Select input and output volume nodes")
-            self.ui.applyButton.enabled = False
-
-    def onApplyButton(self) -> None:
-        """Run processing when user clicks "Apply" button."""
-        with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
-            # Compute output
-            self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode(),
-                               self.ui.imageThresholdSliderWidget.value, self.ui.invertOutputCheckBox.checked)
-
-            # Compute inverted output (if needed)
-            if self.ui.invertedOutputSelector.currentNode():
-                # If additional output volume is selected then result with inverted threshold is written there
-                self.logic.process(self.ui.inputSelector.currentNode(), self.ui.invertedOutputSelector.currentNode(),
-                                   self.ui.imageThresholdSliderWidget.value, not self.ui.invertOutputCheckBox.checked, showResult=False)
                 
     def onConnectDeviceButton(self, toggled: bool) -> None:
         if toggled:
@@ -275,6 +236,17 @@ class IVTutorWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             logging.error(f"IGT connection stopped")
             self.logic.startIGTConnection(toggled)
             self.ui.connectDeviceButton.text = "Connect Device" 
+
+    def onApplyTransformsButton(self) -> None:
+        if not self.appliedTransforms:
+            logging.error(f"Transforms applied")
+            self.appliedTransforms = True
+            
+            # call logic function to create and apply transforms in correct hierarchy
+            self.logic.setUpTransformHierarchy()
+        else:
+            logging.error(f"Transforms already applied")
+            return
 
     def onNextStepButton(self) -> None:
         """Go to the next step in the instruction."""
@@ -301,25 +273,25 @@ class IVTutorWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if step == 0:
             self.initStepsTextDisplay()
         elif step == 1:
-            self.ui.stepsTextDisplay.setText("Step 1")
+            self.ui.stepsTextDisplay.setText("Step 1: Sanitize hands and place the patient’s arm in a comfortable position.")
         elif step == 2:
-            self.ui.stepsTextDisplay.setText("Step 2")
+            self.ui.stepsTextDisplay.setText("Step 2: Identify the vein, choosing a vein 0.3-1.5cm from the skin surface with a diameter greater than 0.4cm, preferred veins are straight, distal, and non-branched.")
         elif step == 3:
-            self.ui.stepsTextDisplay.setText("Step 3")
+            self.ui.stepsTextDisplay.setText("Step 3: Position the tourniquet (place under the arm, cross over sides of the band, tuck the front side under and tighten) 20-25cm proximally to the site.")
         elif step == 4:
-            self.ui.stepsTextDisplay.setText("Step 4")
+            self.ui.stepsTextDisplay.setText("Step 4: Recheck the vein for the radial pulse, loosening the tourniquet if unsuccessful.")
         elif step == 5:
-            self.ui.stepsTextDisplay.setText("Step 5")
+            self.ui.stepsTextDisplay.setText("Step 5: Clean the patient’s arm with an antibacterial wipe in the direction of blood flow, and remove the sterile, unopened needle from the package.")
         elif step == 6:
-            self.ui.stepsTextDisplay.setText("Step 6")
+            self.ui.stepsTextDisplay.setText("Step 6: Prepare and inspect the catheter; remove the needle cap careful not to touch the needle.")
         elif step == 7:
-            self.ui.stepsTextDisplay.setText("Step 7")
+            self.ui.stepsTextDisplay.setText("Step 7: Pull the skin taut by placing a thumb and forefinger at either end of the vein; another way is to pinch the skin on the underside of the arm, careful not to compress the vein during the placement attempt.")
         elif step == 8:
-            self.ui.stepsTextDisplay.setText("Step 8")
+            self.ui.stepsTextDisplay.setText("Step 8: Insert the needle with the bevel facing up, at a 15-30° angle, moving slowly and stopping if any resistance is felt.")
         elif step == 9:
-            self.ui.stepsTextDisplay.setText("Step 9")
+            self.ui.stepsTextDisplay.setText("Step 9: Advance the needle until a flashback (initial backflow of blood) is seen, then stop. Remove the tourniquet and advance the catheter into the vein.")
         elif step == 10:
-            self.ui.stepsTextDisplay.setText("Step 10") 
+            self.ui.stepsTextDisplay.setText("Step 10: Remove the needle and make a U-shaped loop with IV tubing so 1 strip of tape covers both vertical parts of the U; then secure the IV tubing about 6 inches proximally on the patient's arm.") 
 
 
 #
@@ -339,8 +311,8 @@ class IVTutorLogic(ScriptedLoadableModuleLogic):
 
     # IGT Connection Constants
     CONNECTION_HOSTNAME = "localhost"
-    CAMERA_PORT = 18944 #45 for optical marker tracker config
-    MARKER_PORT = 18945 #44 for optical marker tracker config
+    CAMERA_PORT = 18945 #45 for optical marker tracker config
+    MARKER_PORT = 18944 #44 for optical marker tracker config
 
     def __init__(self) -> None:
         """Called when the logic class is instantiated. Can be used for initializing member variables."""
@@ -358,6 +330,18 @@ class IVTutorLogic(ScriptedLoadableModuleLogic):
             markerConnectorNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLIGTLConnectorNode")
             markerConnectorNode.SetTypeClient(self.CONNECTION_HOSTNAME, self.MARKER_PORT)
             parameterNode.markerConnectorNode = markerConnectorNode
+        # referenceMarker = slicer.util.getNode
+            
+    def setUpTransformHierarchy(self):
+        # need to first create needle model
+        """
+        Hierarchy:
+        Marker5(needle)ToTracker (linear transform)
+            -> NeedleTipToNeedle (linear transform)
+                -> NeedleModel (model)
+        """
+        
+        pass
 
     def getParameterNode(self):
         return IVTutorParameterNode(super().getParameterNode())
@@ -406,10 +390,21 @@ class IVTutorLogic(ScriptedLoadableModuleLogic):
         # find how to set connector to active
         parameterNode = self.getParameterNode()
         cameraConnectorNode = parameterNode.cameraConnectorNode
+        markerConnectorNode = parameterNode.markerConnectorNode
         if toggled:
             cameraConnectorNode.Start()
+            markerConnectorNode.Start()
+
         else:
             cameraConnectorNode.Stop()
+            markerConnectorNode.Stop()
+
+    # def startWatchDog(self, toggled):
+    #     logging.info(f"startWatchDog({toggled})")
+    #     parameterNode = self.getParameterNode()
+    #     watchDogNode = parameterNode.watchDogNode()
+    #     if toggled:
+            
 
     
 
