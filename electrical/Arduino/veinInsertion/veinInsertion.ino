@@ -14,14 +14,14 @@ void setup() {
 // the loop function runs over and over again forever
 void loop() {
   // Measure needle voltage
-  float needleVoltage = analogRead(voutPin0)/1024*5.0;
+  float needleVoltage = analogRead(voutPin0)/1024.0*5.0;
   Serial.print("Analog 0: ");
-  Serial.println(analogRead(voutPin0)/1024*5.0);
+  Serial.println(analogRead(voutPin0)/1024.0*5.0);
 
   // Measure posterior wall voltage
-  float pwVoltage = analogRead(voutPin1)/1024*5.0;
+  float pwVoltage = analogRead(voutPin1)/1024.0*5.0;
   Serial.print("Analog 1: ");
-  Serial.println(analogRead(voutPin1)/1024*5.0);
+  Serial.println(analogRead(voutPin1)/1024.0*5.0);
   
   if (needleVoltage >= 0.5){
     Serial.println("Successful Needle Insertion");
@@ -30,5 +30,6 @@ void loop() {
   }else{
     Serial.println("Needle is is not in vein!");
   }
+  
   delay(1000);                          // wait for a second
 }
